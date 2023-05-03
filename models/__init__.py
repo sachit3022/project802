@@ -1,1 +1,2 @@
-from .NonParametric import KNN,ParzenWindow,BaseModel
+from .DimRed import *
+from .NonParametric import *

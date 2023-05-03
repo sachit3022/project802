@@ -2,12 +2,9 @@ import torch
 import torch.nn as nn
 from torchvision.models import resnet18, ResNet18_Weights
 
-
-
 #channel shuffle permutations
 #albumentations random jitter
 # random array 0-255 map it to different number.
-
         
 class Network(nn.Module):
     def __init__(self,freeze=True):

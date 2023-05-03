@@ -52,11 +52,12 @@ config = wandb.config
 
 ### ARGS END
 
+
+"""
 np.random.seed(0)
 random.seed(0)
 torch.manual_seed(0)
-
-
+"""
 
 
 class PCA:
@@ -105,7 +106,6 @@ class MDA:
             U = X[y==c] - X[y==c].mean(axis=0)
             intra_class_variance +=  U.T @ U
 
-        
         bias_class_variance = torch.zeros(d,d)
 
         if s is not None:
@@ -229,21 +229,17 @@ def zca_whitening_matrix(X):
         Columns: Observations
     OUTPUT: ZCAMatrix: [M x M] matrix
     """
-    # Covariance matrix [column-wise variables]: Sigma = (X-mu)' * (X-mu) / N
-    sigma = np.cov(X, rowvar=True,dtype=float) # [M x M]
-    # Singular Value Decomposition. X = U * np.diag(S) * V
-    U,S,V = np.linalg.svd(sigma)
-        # U: [M x M] eigenvectors of sigma.
-        # S: [M x 1] eigenvalues of sigma.
-        # V: [M x M] transpose of U
-    # Whitening constant: prevents division by zero
-    epsilon = 1e-5
-    # ZCA Whitening matrix: U * Lambda * U'
-    ZCAMatrix = np.dot(U, np.dot(np.diag(1.0/np.sqrt(S + epsilon)), U.T)) # [M x M]
-    return ZCAMatrix
+    m = X.shape[0]
+    X = X - X.mean(axis=0) # cener the data
+    C = X.T @ X / m # 
 
+    eig_vals, eig_vecs = np.linalg.eig(C)
+    D = np.diag(eig_vals) # eig_vals is a vector, but we want a matrix
+    P = eig_vecs
 
-
+    D_m12 = np.diag(np.diag(D)**(-0.5))
+    W_ZCA = P @ D_m12 @ P.T 
+    return torch.tensor(W_ZCA)
 
 
 

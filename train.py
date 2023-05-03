@@ -16,44 +16,8 @@ import torchmetrics
 from Dataloader import WholeDataset,ClassConditionalPermutation
 from models.ResnetClassifier import Network
 
-
-
 from PIL import Image
-
-#change the environ here
-
-DATA_DIR = "colored_mnist"
-BATCH_SIZE = 1000
-LOG  = "online" #dryrun #online
-
-os.environ["WANDB_API_KEY"]= "13978bc398bdedd79f4db560bfb4b79e2db711b5"
-wandb.login()
-wandb.init(
-    mode=LOG,
-    project="Biased MNIST",
-    config={
-        "epochs": 100,
-        "batch_size": 1000,
-        "lr": 1e-2,
-        "adversery_weight":False,
-        "permutation":False
-    })
-
-
-class Args(object):
-    def __init__(self,data_split):
-        self.data_dir = DATA_DIR
-        self.data_split = data_split
-        self.color_var = 0.040
-config = wandb.config
-
-
-### ARGS END
-
-if not os.path.isdir(DATA_DIR):
-    os.mkdir(DATA_DIR)
-    wget.download("https://drive.google.com/u/0/uc?id=11K-GmFD5cg3_KTtyBRkj9VBEnHl-hx_Q&export=download&confirm=t&uuid=4a570521-ee16-4f7b-ba39-bd335d53742f&at=ANzk5s470DAfmxouooYvWvjjuTIM:1682277833863",out = args.data_dir) 
-
+from Config import Args,config
 
 
 if __name__ == "__main__":
@@ -68,8 +32,8 @@ if __name__ == "__main__":
     args_test  = Args("test")
     test_dataset = WholeDataset(args_test)
 
-    train_dataloader = DataLoader(train_dataset,shuffle=True,batch_size=BATCH_SIZE,num_workers=4,pin_memory=True,persistent_workers=True)
-    test_dataloader = DataLoader(test_dataset,shuffle=False,batch_size=BATCH_SIZE,num_workers=4,pin_memory=True,persistent_workers=True)
+    train_dataloader = DataLoader(train_dataset,shuffle=True,batch_size=args_train.BATCH_SIZE,num_workers=4,pin_memory=True,persistent_workers=True)
+    test_dataloader = DataLoader(test_dataset,shuffle=False,batch_size=args_test.BATCH_SIZE,num_workers=4,pin_memory=True,persistent_workers=True)
 
     model = Network(False)
     loss= nn.CrossEntropyLoss()
