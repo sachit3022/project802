@@ -12,7 +12,7 @@ wandb.init(
     mode=LOG,
     project="Biased MNIST",
     config={
-        "epochs": 100,
+        "epochs": 12,
         "batch_size": 1000,
         "lr": 1e-2,
         "adversery_weight":False,
@@ -25,7 +25,7 @@ class Args(object):
     def __init__(self,data_split):
         self.data_dir = DATA_DIR
         self.data_split = data_split
-        self.color_var = 0.040
+        self.color_var = 0.020
         self.BATCH_SIZE = BATCH_SIZE
         self.LOG = LOG
 

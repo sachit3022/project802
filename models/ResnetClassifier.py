@@ -20,3 +20,21 @@ class Network(nn.Module):
     def predict(self,X):
         return torch.argmax(self.forward(X),axis=1)
 
+class BaseModel(nn.Module):
+    pass 
+
+
+
+
+
+class AdvNetwork(nn.Module):
+    def __init__(self):
+        super(AdvNetwork, self).__init__()
+        self.fc  = nn.Linear(512,10)
+        if freeze:
+            for param in self.base_model.parameters():
+                param.requires_grad = False        
+    def forward(self,X):
+        return self.fc(torch.flatten(self.base_model(X), 1))
+    def predict(self,X):
+        return torch.argmax(self.forward(X),axis=1)

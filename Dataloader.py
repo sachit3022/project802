@@ -49,7 +49,7 @@ class ResetWeigtsDataset(Dataset):
         self.base_model = BaseModel()
         if not os.path.exists(f"{Dir_path}/"+loc):
             print("resnet model weights dont exists, Working on computing resnet features.")
-            args_t = Args("train")
+            args_t = Args(type)
             u_dataset = WholeDataset(args_t)
             train_dataloader = DataLoader(u_dataset,shuffle=True,batch_size=len(u_dataset),num_workers=4,pin_memory=True,persistent_workers=True)
             X,l,y,s  = next(iter(train_dataloader))
@@ -85,6 +85,8 @@ class WholeDataset(Dataset):
         self.color_std = color_var**0.5
         self.T = transforms.Compose([
                               transforms.ToTensor(),
+                            transforms.Normalize((0.4914,0.4822,0.4465),
+                        (0.2023,0.1994,0.2010)),
                                     ])
         """
             transforms.Normalize((0.4914,0.4822,0.4465),
@@ -101,6 +103,7 @@ class WholeDataset(Dataset):
 
         image = self.ToPIL(image)
 
+
         label_image = image.resize((14,14), Image.Resampling.NEAREST) 
 
         label_image = torch.from_numpy(np.transpose(label_image,(2,0,1)))
@@ -108,8 +111,9 @@ class WholeDataset(Dataset):
         label_image = torch.div(label_image,32)
         label_image = label_image + mask_image
         label_image = label_image.long()
-        c_bias = torch.tensor([(set(np.unique(label_image[0])) - set([255])).pop(),(set(np.unique(label_image[1])) - set([255])).pop(),(set(np.unique(label_image[2])) - set([255])).pop()],dtype=torch.float)
-        return self.T(image), label_image, label, c_bias
+        T_image = self.T(image) 
+        c_bias = torch.tensor([(set(np.unique(T_image[0])) - set([0])).pop(),(set(np.unique(T_image[1])) - set([0])).pop(),(set(np.unique(T_image[2])) - set([0])).pop()],dtype=torch.float)
+        return T_image, label_image, label, c_bias
 
     def __len__(self):
         return self.image.shape[0]
@@ -123,7 +127,7 @@ class ClassConditionalPermutation:
         for c in np.unique(y):
             arr = np.eye(X[y==c].shape[0],dtype=np.float32)
             P = np.array([np.random.permutation(arr) if random.uniform(0,1)<self.gamma else arr for i  in range(X.shape[1]) ]) 
-            X[y==c] = torch.tensor(np.einsum('ijk,ki -> ji', P, np.array(X)))
+            X[y==c] = torch.tensor(np.einsum('ijk,ki -> ji', P, np.array(X[y==c])))
         X = X.reshape(*og_shape)
         return X
             
