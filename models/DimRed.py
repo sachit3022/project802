@@ -14,19 +14,28 @@ import torch
 from torch.utils.data import DataLoader
 from torch import optim
 import torch.nn as nn
+import plotly.express as px
 
-import torchmetrics
 
 from Dataloader import WholeDataset,ClassConditionalPermutation
 from copy import deepcopy
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 
 from PIL import Image
+
+
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
+from Metrics import ComputeMetrics
+
+compute_metrics = ComputeMetrics(10)
 
 #change the environ here
 
 DATA_DIR = "colored_mnist"
-TRAIN_BATCH_SIZE = 30000
-TEST_BATCH_SIZE = 1000
+TRAIN_BATCH_SIZE = 5000
+TEST_BATCH_SIZE = 5000
 LOG  = "disabled" #dryrun #online
 
 os.environ["WANDB_API_KEY"]= "13978bc398bdedd79f4db560bfb4b79e2db711b5"
@@ -47,7 +56,7 @@ class Args(object):
     def __init__(self,data_split):
         self.data_dir = DATA_DIR
         self.data_split = data_split
-        self.color_var = 0.040
+        self.color_var = 0.020
 config = wandb.config
 
 ### ARGS END
@@ -110,22 +119,28 @@ class MDA:
 
         if s is not None:
             #here we consider s as a 3 channel one     
-            for s_c in range(s.shape[-1]):
-                for u_b in np.unique(s[:,s_c]):
-                    U = X[s[:,s_c]==u_b] - X[s[:,s_c]==u_b].mean(axis=0,keepdims=True)
-                    bias_class_variance +=  U.T @ U
+            for c in tqdm(np.unique(y)):
+                curr_classvar = torch.zeros(d,d)
+                for s_c in range(s.shape[-1]):
+                    for u_b in random.sample(sorted(np.unique(s[y==c][:,s_c])),6):
+                        U = X[y==c][s[y==c][:,s_c]==u_b].mean(axis=0) - X[y==c].mean(axis=0,keepdims=True)
+                        curr_classvar +=  U.T @ U
+                bias_class_variance +=len(X[y==c])*curr_classvar
+        print(bias_class_variance)
 
         print((bias_class_variance==0).all())
         print((intra_class_variance==0).all())
         print((inter_class_variance==0).all())
 
-        intra_class_variance +=0.0001*torch.eye(d) #+  0.01*bias_class_variance # improve the condition number of a matrix/
+         #+  0.01*bias_class_variance # improve the condition number of a matrix/
         if s is not None:
-            bias_class_variance +=0.0001*torch.eye(d)
+            intra_class_variance = torch.zeros(d,d)
         else:
-            bias_class_variance = torch.eye(d).float()
+            bias_class_variance = torch.zeros(d,d)
+            intra_class_variance +=1e-5*torch.eye(d)
+        #bias_class_variance+1e-6*torch.eye(d)+
 
-        U,S,V = torch.pca_lowrank(torch.linalg.inv(intra_class_variance @ bias_class_variance)@inter_class_variance, q=self.num_dim, center=True)
+        U,S,V = torch.pca_lowrank(inter_class_variance @ torch.linalg.pinv(bias_class_variance + intra_class_variance), q=self.num_dim, center=True)
         self.projection_space   = V
         self.reconstruction_space = V.T
        
@@ -179,6 +194,7 @@ def plotTopKK(X,k=5,file="placehoder"):
 
 
 
+
 """
 K = {}
 for c in np.unique(y_t):
@@ -224,24 +240,21 @@ for i in range(5):
 def zca_whitening_matrix(X):
     """
     Function to compute ZCA whitening matrix (aka Mahalanobis whitening).
-    INPUT:  X: [M x N] matrix.
+    INPUT:  X: [N x M] matrix.
         Rows: Variables
         Columns: Observations
     OUTPUT: ZCAMatrix: [M x M] matrix
     """
-    m = X.shape[0]
+    m,n= X.shape
     X = X - X.mean(axis=0) # cener the data
     C = X.T @ X / m # 
-
-    eig_vals, eig_vecs = np.linalg.eig(C)
+    eig_vals, eig_vecs = np.linalg.eigh(C + 1e-5*np.eye(n))
     D = np.diag(eig_vals) # eig_vals is a vector, but we want a matrix
     P = eig_vecs
 
     D_m12 = np.diag(np.diag(D)**(-0.5))
     W_ZCA = P @ D_m12 @ P.T 
-    return torch.tensor(W_ZCA)
-
-
+    return torch.tensor(W_ZCA,dtype=torch.float)
 
 
 if __name__ == "__main__":
@@ -259,53 +272,107 @@ if __name__ == "__main__":
     train_dataloader = DataLoader(train_dataset,shuffle=True,batch_size=TRAIN_BATCH_SIZE,num_workers=4,pin_memory=True,persistent_workers=True)
     test_dataloader = DataLoader(test_dataset,shuffle=False,batch_size=TEST_BATCH_SIZE,num_workers=4,pin_memory=True,persistent_workers=True)
     
-    mda = MDA()
-    pca = PCA()
+
+    mda = MDA(num_dim=10)
+    pca = PCA(num_dim=10)
 
     X_t,l_t,y_t,s_t  = next(iter(train_dataloader))
     X_v,l_v,y_v,s_v  = next(iter(test_dataloader))
     og_dim = X_t.shape
     ov_dim = X_v.shape
+    print(ov_dim)
 
+    """
+    #TSNE code below as this doesnpt need any training we dont do anythin
+
+    X_embedded = TSNE(n_components=2, learning_rate='auto',init='random', perplexity=3).fit_transform(X_t.flatten(start_dim=1))
+    fig = px.scatter(
+        X_embedded[:10000], x=0, y=1,
+        color=y_t[:10000],labels={'color': 'digit'}
+    )
+    fig.show()    
+    """
     
-    plotTopKK(X_t,file="source.png")
+    plotTopKK(X_v,file="source.png")
 
     X_t = X_t.flatten(start_dim=1)
     X_v = X_v.flatten(start_dim=1)
-    
+    print(X_t[0])
 
-    Z = mda.fit(X_t,y_t,s_t)     
-    X_hat = X_t @ mda.projection_space @ mda.reconstruction_space
-    X_hat = X_hat.reshape(og_dim)
+    """"
+     
+    W_ZCA = zca_whitening_matrix(X_t)
+
+    Z = mda.fit(X_t,y_t,s_t)     #(W_ZCA  @ X_t.T).T
+    X_p = X_t @ mda.projection_space
+    X_hat = (X_p  @ mda.reconstruction_space).reshape(og_dim)
+
+    U = X_v @ mda.projection_space
+
+    fig = px.scatter(
+        U, x=0, y=1,
+        color=y_v,labels={'color': 'digit'}
+    )
+    fig.write_image(f'../results/MDA_biased.png')
+
+    clf = make_pipeline(StandardScaler(), SVC(gamma='auto',kernel="rbf"))
+    clf.fit(X_p[:,:100], y_t)
+    y_pred = clf.predict(U[:,:100])
+    metrics = compute_metrics(torch.tensor(y_pred),y_v)
+    print(metrics)
 
 
-    fig,ax = plt.subplots(5,5)
-    for i in range(5):
-        for j in range(5):
-            ax[i][j].imshow(np.transpose(X_hat[i*5+j],(1,2,0)))
     
     plotTopKK(X_hat,file="MDA_target_biased.png")
 
-    
+
+    mda = MDA(num_dim=10)
     Z = mda.fit(X_t,y_t)     
-    X_hat = X_t @ mda.projection_space @ mda.reconstruction_space
-    X_hat = X_hat.reshape(og_dim)
-
-    fig,ax = plt.subplots(5,5)
-    for i in range(5):
-        for j in range(5):
-            ax[i][j].imshow(np.transpose(X_hat[i*5+j],(1,2,0)))
+    X_p = X_t @ mda.projection_space 
+    X_hat = (X_p @ mda.reconstruction_space).reshape(og_dim)
     
-    plotTopKK(X_hat,file="MDA_target_biased.png")
+    plotTopKK(X_hat,file="MDA_target.png")
+
+    U = X_v @ mda.projection_space
+
+    fig = px.scatter(
+        U, x=0, y=1,
+        color=y_v,labels={'color': 'digit'}
+    )
+    fig.write_image(f'../results/MDA.png')
+
+    clf = make_pipeline(StandardScaler(), SVC(gamma='auto',kernel="rbf"))
+    clf.fit(X_p[:,:100], y_t)
+    y_pred = clf.predict(U[:,:100])
+    metrics = compute_metrics(torch.tensor(y_pred),y_v)
+    print(metrics)
+
 
 
     Z = pca.fit(X_t)
-    X_hat = X_t @ mda.projection_space @ mda.reconstruction_space
-    X_hat = X_hat.reshape(og_dim)
-    plotTopKK(X_hat,file="MDA_target_biased.png")
+    X_p = X_t @ pca.projection_space 
+    X_hat = (X_p @ pca.reconstruction_space).reshape(og_dim)
+
+    plotTopKK(X_hat,file="PCA_target.png")
     
+    U = X_v @ pca.projection_space
 
+    fig = px.scatter(
+        U, x=0, y=1,
+        color=y_v,labels={'color': 'digit'}
+    )
+    fig.write_image(f'../results/PCA.png')
 
+    clf = make_pipeline(StandardScaler(), SVC(gamma='auto',kernel="rbf"))
+    clf.fit(X_p[:,:100], y_t)
+    y_pred = clf.predict(U[:,:100])
+    metrics = compute_metrics(torch.tensor(y_pred),y_v)
+    print(metrics)
 
+    lda = LinearDiscriminantAnalysis()
+    lda_t = lda.fit_transform(X_t,y_t)
+    y_pred = lda.predict(X_v)
+    metrics = compute_metrics(torch.tensor(y_pred),y_v)
+    print(metrics)
 
-
+    """

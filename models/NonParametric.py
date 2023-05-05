@@ -17,6 +17,7 @@ from tqdm import tqdm
 from models.DimRed import zca_whitening_matrix
 import math
 from sklearn.neighbors import KernelDensity
+from sklearn.model_selection import train_test_split
 
 
 class KNN:
@@ -81,8 +82,30 @@ if __name__ == "__main__":
     train_dataset = ResetWeigtsDataset("ResnetFeaturesTrain.pt","train")
     test_dataset = ResetWeigtsDataset("ResnetFeaturesTest.pt","test")
 
+
+    #args_train = Args("train")
+    #train_dataset = WholeDataset(args_train)
+    #args_test  = Args("test")
+    #test_dataset = WholeDataset(args_test)
+    
+    
+    
+    train_dataloader = DataLoader(train_dataset,shuffle=True,batch_size=30000,num_workers=4,pin_memory=True,persistent_workers=True)
+    test_dataloader = DataLoader(test_dataset,shuffle=False,batch_size=3000,num_workers=4,pin_memory=True,persistent_workers=True)
+    
+    print(len(test_dataset),len(train_dataset))
+
     train_size = int(0.8 * len(train_dataset))
     test_size = len(train_dataset) - train_size
+    """
+    X_t,l_t,y_t,s_t = next(iter(train_dataloader))#train_dataset[:1000]
+    X_v,l_v,y_v,s_v = next(iter(test_dataloader))#test_dataset[:1000] 
+    X_t= X_t.flatten(start_dim=1)
+    #X_t = X_t - X_t.mean(axis=0)
+    X_v =  X_v.flatten(start_dim=1)
+    #X_v = X_v - X_v.mean(axis=0)
+    """
+
 
     metrics ={}
 
@@ -96,8 +119,8 @@ if __name__ == "__main__":
         train_split,valid_split = torch.utils.data.random_split(train_dataset, [train_size, test_size])
 
        
-        X_t,y_t,s_t = train_split[:]
-        X_v,y_v,s_v = valid_split[:] 
+        X_t,y_t,s_t = train_split[:20000]
+        X_v,y_v,s_v = valid_split[:2000] 
         
         pw = ParzenWindow(h=h)
         pw.fit(X_t,y_t)
@@ -108,12 +131,27 @@ if __name__ == "__main__":
  
     torch.save(metrics,"pzn_metrics.pt")
 
-    for k in tqdm(np.arange(1,100,5)):
-        train_split,valid_split = torch.utils.data.random_split(train_dataset, [train_size, test_size])
 
-        X_t,y_t,s_t = train_split[:]
-        X_v,y_v,s_v = valid_split[:] 
+    # Split the indices in a stratified way
 
+
+
+    for k in tqdm([1,5,10,15,20,25,30,35,40,50,60,75,90,100,125,150,200,300,500]):#
+        #train_split,valid_split = torch.utils.data.random_split(train_dataset, [train_size, test_size])
+        indices = np.arange(len(train_dataset))
+        train_indices, test_indices = train_test_split(indices, train_size=50000)
+        print(len(train_indices))
+        print(len(test_indices))
+        # Warp into Subsets and DataLoaders
+        new_train_dataset = torch.utils.data.Subset(train_dataset, train_indices)
+        new_test_dataset = torch.utils.data.Subset(train_dataset, test_indices)
+
+        train_loader = DataLoader(new_train_dataset, shuffle=True, num_workers=4, batch_size=len(train_indices))
+        test_loader = DataLoader(new_test_dataset, shuffle=False, num_workers=4, batch_size=len(test_indices))
+        X_t,y_t,s_t = next(iter(train_loader))
+        X_v,y_v,s_v = next(iter(test_loader))
+        #X_t = X_t.flatten(start_dim=1)
+        #X_v = X_v.flatten(start_dim=1)
         knn = KNN(k=k,whitten=False)
         knn.fit(X_t,y_t)
     
@@ -121,10 +159,12 @@ if __name__ == "__main__":
         metrics_dict = compute_metrics(y_pred,y_v)
         metrics[k] = metrics_dict
 
-    torch.save(metrics,"knn_metrics_whitten.pt")
+    torch.save(metrics,"knn_metrics_n_whitten.pt")
     print(metrics)
-    
 
+    """
+
+    """
     k_folds = 5
     kfold = KFold(n_splits=k_folds, shuffle=True)
 
@@ -142,38 +182,52 @@ if __name__ == "__main__":
         #knn.fit(X_t,y_t)
         #test_dataloader = DataLoader(test_dataset,shuffle=False,batch_size=len(test_dataset),num_workers=4,pin_memory=True,persistent_workers=True)
 
-    
-    X_t,y_t,s_t = train_dataset[:]
-    X_v,y_v,s_v = test_dataset[:] 
+    """
+    X_t,y_t,s_t = next(iter(train_dataloader))#train_dataset[:1000]
+    X_v,y_v,s_v = next(iter(test_dataloader))#test_dataset[:1000] 
 
-    pw = ParzenWindow(h=3.75)
+    #X_t = X_t.flatten(start_dim=1)
+    #X_v = X_v.flatten(start_dim=1)
+
+    pw = ParzenWindow(h=3.75,whitten=True)
     pw.fit(X_t,y_t)
     
     metrics = []
-    for x,y in ((X_t,y_t),(X_v,y_v)):
+    for x,y in ((X_v,y_v),(X_v,y_v)): #(X_t,y_t),
         y_pred = pw.predict(x)
         metrics_dict = compute_metrics(y_pred,y)
         metrics.append(metrics_dict)
-
+        print(metrics_dict)
     torch.save(metrics,"pzn_metrics.pt")
+    
+
     """
-    k = 6
+    k = 10
 
-    X_t,y_t,s_t = train_dataset[:]
-    knn = KNN(k=k,whitten=False)
+    #X_t,y_t,s_t = train_dataset[:1000]
+
+    X_t,y_t,s_t = next(iter(train_dataloader))#train_dataset[:1000]
+    X_v,y_v,s_v = next(iter(test_dataloader))#test_dataset[:1000] 
+    X_t= X_t.flatten(start_dim=1)
+    #X_t = X_t - X_t.mean(axis=0)
+    X_v =  X_v.flatten(start_dim=1)
+    #X_v = X_v - X_v.mean(axis=0)
+    
+    knn = KNN(k=k,whitten=True)
     knn.fit(X_t,y_t)
-
 
     test_size = 0.8*len(test_dataset)
     metrics =[]
-    for i in tqdm(range(10)):
+    for i in tqdm(range(1)):
         test_set_size = int(len(test_dataset) * 0.8)
         leftout_size = len(test_dataset) - test_set_size
-        train_set, valid_set = torch.utils.data.random_split(test_dataset, [test_set_size, leftout_size])
-        X_v,y_v,s_v = train_set[:]
+        #train_set, valid_set = torch.utils.data.random_split(test_dataset, [test_set_size, leftout_size])
+        #print(train_set[:])
+        #X_v,y_v,s_v = train_set[:]
         y_pred = knn.predict(X_v)
-        metrics_dict = compute_metrics(y_pred,y_v)
+        metrics_dict = compute_metrics(torch.tensor(y_pred),torch.tensor(y_v))
         metrics.append(metrics_dict)
 
     torch.save(metrics,"knn_final_metrics.pt")
     print(metrics)
+  """
